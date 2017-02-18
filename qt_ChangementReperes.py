@@ -328,14 +328,14 @@ class Main(MyQWidget):
         args.config_xml = self.config_xml.text()
         args.source = self.get_abbr_from_text(self.source.currentText())
         args.target = self.get_abbr_from_text(self.target.currentText())
-        args.sep = ';'
+        args.sep = self.sep.text()  # FIXME: check consistancy?
         args.x = self.x.currentText()
         args.y = self.y.currentText()
         if self.z.currentText() != NO_VALUE:
             args.z = self.z.currentText()
         else:
             args.z = None
-        args.digits = 4
+        args.digits = int(self.digits.text())  # FIXME: integer validation through regex?
         args.verbose = True
         args.force = False
 
