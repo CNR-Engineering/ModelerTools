@@ -5,36 +5,37 @@ TODO?
 * erreur conversion en float
 """
 
-from copy import deepcopy
 import csv
+import functools
 import logging
 import math
 import networkx as nx
 import sys
 import xml.etree.ElementTree as ET
 
-
+LOG_FORMAT = "%(message)s"
 LOG_POINT_FREQUENCY = 10000
 
 
 # Change function representation
 # Inspiration from: http://stackoverflow.com/questions/10875442/possible-to-change-a-functions-repr-in-python
-import functools
 class reprwrapper(object):
     def __init__(self, repr, func):
         self._repr = repr
         self._func = func
         functools.update_wrapper(self, func)
+
     def __call__(self, *args, **kw):
         return self._func(*args, **kw)
+
     def __repr__(self):
         return self._repr(self._func)
+
 
 def withrepr(reprfun):
     def _wrap(func):
         return reprwrapper(reprfun, func)
     return _wrap
-#
 
 
 class Point:
@@ -104,12 +105,14 @@ class ReferenceFrameConfig:
     Attributes:
     - root
     - graph
+    - _logger
     """
-    def __init__(self, config_xml):
+    def __init__(self, config_xml, logger):
         """Parse xml configuration file"""
         tree = ET.parse(config_xml)
         self.root = tree.getroot()
         self.graph = nx.DiGraph()
+        self._logger = logger
 
         reference_frames = self.root.find('ReferenceFrames')
         self.reference_frames_dict = {}
@@ -128,68 +131,68 @@ class ReferenceFrameConfig:
             sys.exit("La balise 'ReferenceFrames' est manquante ou vide")
 
     def get_transformations(self):
-        transformations = self.root.find('ChangesInReferenceFrames')
-        if transformations:
-            for i, transformation in enumerate(transformations):
+        changes_in_referece_frames = self.root.find('ChangesInReferenceFrames')
+        if changes_in_referece_frames:
+            for i, transformations in enumerate(changes_in_referece_frames):
                 attrib = get_required_attributes(
                     "La transformation #{}".format(i),
-                    transformation,
+                    transformations,
                     ['from', 'to']
                 )
 
                 function_processes = []
                 reverse_function_processes = []
-                for arf in transformation:
+                for transf in transformations:
                     # Translation vector (dx, dy)
-                    if arf.tag == "Translation":
+                    if transf.tag == "Translation":
                         try:
-                            dx = float(arf.attrib['x'])
+                            dx = float(transf.attrib['x'])
                         except KeyError:
                             dx = 0
                         try:
-                            dy = float(arf.attrib['y'])
+                            dy = float(transf.attrib['y'])
                         except KeyError:
                             dy = 0
                         try:
-                            dz = float(arf.attrib['z'])
+                            dz = float(transf.attrib['z'])
                         except KeyError:
                             dz = 0
                         function_processes.append(Point.auto_fun("translate", [dx, dy, dz]))
                         reverse_function_processes.append(Point.auto_fun("translate", [-dx, -dy, -dz]))
 
                     # Rotation of center (xc,yc) and with an angle in degree (anti-clockwise)
-                    elif arf.tag == "Rotation":
+                    elif transf.tag == "Rotation":
                         try:
-                            angle = float(arf.attrib['angle'])
+                            angle = float(transf.attrib['angle'])
                         except KeyError:
                             sys.exit("L'angle de la rotation (attribut 'angle') n'est pas renseigné")
                         try:
-                            xc, yc = (float(x) for x in arf.attrib['center'].split(','))
+                            xc, yc = (float(x) for x in transf.attrib['center'].split(','))
                         except KeyError:
                             xc, yc = (0, 0)
                         function_processes.append(Point.auto_fun("rotate", [angle, xc, yc]))
                         reverse_function_processes.append(Point.auto_fun("rotate", [-angle, xc, yc]))
 
                     # Homothecy of center (x, yc) with a given ratio (|ratio|>1 => enlargement)
-                    elif arf.tag == "Homothecy":
+                    elif transf.tag == "Homothecy":
                         try:
-                            kh = float(arf.attrib['kh'])
+                            kh = float(transf.attrib['kh'])
                         except KeyError:
                             kh = 1
-                            #FIXME logger.warn("Le rapport horizontal (attribut 'kh') de l'homothétie n'est pas renseigné. Il est pris égal à {}.".format(kh))
+                            self._logger.warn("Le rapport horizontal (attribut 'kh') de l'homothétie n'est pas renseigné. Il est pris égal à {}.".format(kh))
                         try:
-                            kv = float(arf.attrib['kv'])
+                            kv = float(transf.attrib['kv'])
                         except KeyError:
                             kv = 1
-                            #FIXME logger.warn("Le rapport vertical (attribut 'kv') de l'homothétie n'est pas renseigné. Il est pris égal à {}.".format(kv))
+                            self._logger.warn("Le rapport vertical (attribut 'kv') de l'homothétie n'est pas renseigné. Il est pris égal à {}.".format(kv))
                         try:
-                            xc, yc = (float(x) for x in arf.attrib['center'].split(','))
+                            xc, yc = (float(x) for x in transf.attrib['center'].split(','))
                         except KeyError:
                             xc, yc = (0, 0)
                         function_processes.append(Point.auto_fun("homothecy", [kh, kv, xc, yc]))
                         reverse_function_processes.append(Point.auto_fun("homothecy", [1/kh, 1/kv, xc, yc]))
                     else:
-                        sys.exit("La transformation '{}' est inconnue".format(arf.tag))
+                        sys.exit("La transformation '{}' est inconnue".format(transf.tag))
 
                 # Check if nodes are in tag 'ReferenceFrames'
                 # (This step is necessary because otherwise add_edge function would add nodes, but some information will be missing)
@@ -216,7 +219,6 @@ class ReferenceFrameConfig:
             sys.exit("La balise 'ChangesInReferenceFrames' est manquante ou vide")
 
 
-
 def get_required_attributes(instance_label, instance, attributes):
     attr_dict = {}
     for attr in attributes:
@@ -228,12 +230,12 @@ def get_required_attributes(instance_label, instance, attributes):
 
 
 def launch_main(args, logger):
-    ref_frame_config = ReferenceFrameConfig(args.config_xml)
+    ref_frame_config = ReferenceFrameConfig(args.config_xml, logger)
     ref_frame_config.get_transformations()
     ref_frame_graph = ref_frame_config.graph
 
     # Check if reference frames exist
-    logger.info("Liste des noeuds: {}".format(ref_frame_graph.nodes()))
+    logger.info("Liste des repères: {}".format(ref_frame_graph.nodes()))
     if args.source not in ref_frame_graph.nodes():
         sys.exit("Le référentiel en entrée '{}' n'existe pas".format(args.source))
     if args.target not in ref_frame_graph.nodes():
@@ -249,7 +251,7 @@ def launch_main(args, logger):
     elif len(all_path)==1:
         # Path is unique
         path = all_path[0]
-        logger.info("Recherche de l'enchaînement de transformations pour '{}'->'{}' :".format(args.source, args.target))
+        logger.info("Recherche des transformations pour le changement de repère '{}'->'{}' :".format(args.source, args.target))
         for r1, r2 in zip(path[:-1], path[1:]):
             logger.info("> Changement '{}'->'{}'".format(r1, r2))
             for transformation in ref_frame_graph.adj[r1][r2]['function']:
@@ -265,13 +267,13 @@ def launch_main(args, logger):
             if args.y not in csv_reader.fieldnames:
                 sys.exit("La colonne '{}' n'est pas dans le fichier '{}'".format(args.y, args.inname_csv))
 
-            with open(args.outname_csv, 'w', newline='') as out_csv:
+            mode = 'w' if args.force else 'x'
+            with open(args.outname_csv, mode, newline='') as out_csv:
                 logger.info("Début écriture {}".format(args.outname_csv))
                 csv_writer = csv.DictWriter(out_csv, delimiter=args.sep, fieldnames=csv_reader.fieldnames)
                 csv_writer.writeheader()
 
                 def float_from_row(row, item):
-                    #TODO: merge exceptions
                     try:
                         row[item]
                     except ValueError:
@@ -302,7 +304,7 @@ def launch_main(args, logger):
                         row[args.z] = fmt_str.format(pt.z)
 
                     if i % LOG_POINT_FREQUENCY == 0:
-                        logger.info("{}: {}, {}".format(i, row[args.x], row[args.y]))
+                        logger.debug("{}: {}, {}".format(i, row[args.x], row[args.y]))
                     csv_writer.writerow(row)
 
                 logger.info("Fin du fichier, {} points traités".format(i+1))
@@ -316,42 +318,33 @@ def launch_main(args, logger):
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(message)s")  # format="%(levelname)s: %(message)s"
-    logger = logging.getLogger(__name__)
+    # logging.basicConfig()  # format="%(levelname)s: %(message)s"
 
-    if True:
-        import argparse
-        parser = argparse.ArgumentParser(description=__doc__) #myargparse(description=__doc__)
-        parser.add_argument("inname_csv", help="fichier d'entrée csv")
-        parser.add_argument("outname_csv", help="fichier de sortie csv")
-        parser.add_argument("config_xml", help="fichier de condiguration xml des repères")
-        parser.add_argument("source", help="Repère en entrée")
-        parser.add_argument("target", help="Repère en sortie")
-        parser.add_argument("--x", help="nom de la colonne x", default='x')
-        parser.add_argument("--y", help="nom de la colonne y", default='y')
-        parser.add_argument("--z", help="nom de la colonne z")
-        parser.add_argument("--sep", help="Sépérateur de colonnes", default=';')
-        parser.add_argument("--digits", type=int, help="nombre de chiffres significatifs des flottants à écrire", default=4)
-        #parser.add_argument("--force", "-f", help="Ecrase le fichier de sortie s'il existe", action='store_true')
-        args = parser.parse_args()
+    from common.arg_command_line import myargparse
+    parser = myargparse(description=__doc__, add_args=['force', 'verbose'], lang='fr')
+    parser.add_argument("inname_csv", help="Fichier d'entrée csv")
+    parser.add_argument("outname_csv", help="Fichier de sortie csv")
+    parser.add_argument("config_xml", help="Fichier de configuration xml des repères")
+    parser.add_argument("source", help="Repère en entrée")
+    parser.add_argument("target", help="Repère en sortie")
+    parser.add_argument("--x", help="Nom de la colonne x", default='x')
+    parser.add_argument("--y", help="Nom de la colonne y", default='y')
+    parser.add_argument("--z", help="Nom de la colonne z")
+    parser.add_argument("--sep", help="Sépérateur de colonnes", default=';')
+    parser.add_argument("--digits", type=int, help="Nombre de chiffres significatifs des flottants à écrire", default=4)
+    args = parser.parse_args()
+
+    if args.verbose:
+        logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT)
     else:
-        class args:
-            pass
-        args.inname_csv = 'pts_covadis_P.csv'
-        args.outname_csv = 'pts_main_R.csv'
-        args.config_xml = 'Ref_Loire.xml'
-        args.source = 'MP'
-        args.target = 'R'
-        args.sep = ';'
-        args.x = 'x'
-        args.y = 'y'
-        # args.x_out = 'x_T'
-        # args.y_out = 'y_T'
+        logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
+    logger = logging.getLogger(__name__)
 
     try:
         launch_main(args, logger)
     except SystemError as e:
-        #FIXME: not working properly
         logger.fatal(e)
         logger.fatal("L'exécution a échoué à cause de l'erreur ci-dessus")
         sys.exit(1)
+
+    sys.exit(0)

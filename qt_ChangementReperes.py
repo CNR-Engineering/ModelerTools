@@ -1,6 +1,7 @@
+#!/usr/bin/env python3
 """
 TODO:
-* fix logger attribute
+* fix bug with attribute isValid (on QLineEdit)
 """
 
 from csv import DictReader
@@ -8,9 +9,8 @@ import logging
 import os.path
 from PyQt4 import QtGui, QtCore
 import sys
-import xml.etree.ElementTree as ET
 
-from myQt.base import MyQWidget, QtHandler, XStream
+from common.qt_log_in_textbrowser import MyQWidget, ConsoleWindowLogHandler
 
 from ChangementReperes import ReferenceFrameConfig, launch_main
 
@@ -18,23 +18,36 @@ from ChangementReperes import ReferenceFrameConfig, launch_main
 NO_VALUE = "(aucun)"
 
 
-class ExecutingWindow(MyQWidget):
+class Worker(QtCore.QThread):
+    def __init__(self, func, args):
+        super(Worker, self).__init__()
+        self.func = func
+        self.args = args
 
-    def __init__(self):
+    def run(self):
+        try:
+            self.func(*self.args)
+        except SystemExit as e:
+            logger.fatal(e)
+            logger.fatal("L'exécution a échoué à cause de l'erreur ci-dessus")
+
+
+class ExecutingWindow(MyQWidget):
+    def __init__(self, args):
         super(ExecutingWindow, self).__init__()
         self.resize(650, 500)
         self.center()
-        self._console = QtGui.QTextBrowser(self)
+        self.setWindowTitle("Changement de repères")
 
         self.vbox = QtGui.QVBoxLayout()
 
         # Listing
+        self._console = QtGui.QTextBrowser(self)
         self.vbox.addWidget(self._console)
 
         # Buttons
         self.button_cancel = QtGui.QPushButton('Annuler', self)
         self.button_quit = QtGui.QPushButton('Quitter', self)
-
         hbox = QtGui.QHBoxLayout()
         hbox.addStretch(1)
         hbox.addWidget(self.button_cancel)
@@ -43,18 +56,22 @@ class ExecutingWindow(MyQWidget):
 
         self.setLayout(self.vbox)
 
-        XStream.stdout().messageWritten.connect(self._console.insertPlainText)
-        XStream.stdout().messageWritten.connect(self.scroll_down)
-        XStream.stderr().messageWritten.connect(self._console.insertPlainText)
-        XStream.stderr().messageWritten.connect(self.scroll_down)
-
+        # Connexions
         self.connect(self.button_cancel, QtCore.SIGNAL('clicked()'), self.close)
         self.connect(self.button_quit, QtCore.SIGNAL('clicked()'), QtCore.QCoreApplication.instance().quit)
 
+        # Thread
+        self.worker = Worker(launch_main, (args, logger))
+        self.worker.start()
+
+        # Console handler
+        dummyEmitter = QtCore.QObject()
+        self.connect(dummyEmitter, QtCore.SIGNAL("logMsg(QString)"), self._console.append)
+        consoleHandler = ConsoleWindowLogHandler(dummyEmitter)
+        logger.addHandler(consoleHandler)
 
     def scroll_down(self):
         self._console.verticalScrollBar().setValue(self._console.verticalScrollBar().maximum())
-
 
 
 class Main(MyQWidget):
@@ -69,7 +86,6 @@ class Main(MyQWidget):
         super(Main, self).__init__()
         self.initUI()
 
-
     @staticmethod
     def HLine():
         """Horizontal line"""
@@ -78,8 +94,7 @@ class Main(MyQWidget):
         HLine.setFrameShadow(QtGui.QFrame.Sunken)
         return HLine
 
-
-    def add_path_hbox(self, label, extension, mode): #, checkbox=None):
+    def add_path_hbox(self, label, extension, mode):
         """
         Line with 3 objets: QLabel, QLineEdit, QPushButton
         Only QLineEdit is returned
@@ -96,22 +111,22 @@ class Main(MyQWidget):
 
         def check_path_exists():
             """Switch color of `path_line` whether the path exists"""
-            if mode=='r':
+            if mode == 'r':
                 exists, no_file = (Main.GREEN, Main.RED)
             else:
                 exists, no_file = (Main.RED, Main.GREEN)
             path_line.isValid = False
             if os.path.exists(path_line.text()):
                 path_line.setStyleSheet(exists)
-                if mode=='r': path_line.isValid = True
+                if mode == 'r': path_line.isValid = True
             else:
                 path_line.setStyleSheet(no_file)
-                if mode=='w': path_line.isValid = True
+                if mode == 'w': path_line.isValid = True
 
         self.connect(path_line, QtCore.SIGNAL("textChanged(QString)"), check_path_exists)
 
         def select_file():
-            if mode=='r':
+            if mode == 'r':
                 getfile = QtGui.QFileDialog.getOpenFileName
             else:
                 getfile = QtGui.QFileDialog.getSaveFileName
@@ -123,7 +138,7 @@ class Main(MyQWidget):
             elif extension == 'xml':
                 fname = getfile(self, 'Choisir un fichier xml', path_line.text(), "Fichiers xml (*.xml)")
             elif extension is None:
-                #FIXME: save directory if mode=='w'?
+                # FIXME: save directory if mode=='w'?
                 fname = QtGui.QFileDialog.getExistingDirectory(self, 'Sélectionner un dossier', None, QtGui.QFileDialog.ShowDirsOnly)
             else:
                 sys.exit("Extension '{}' is unknown".format(extension))
@@ -133,7 +148,6 @@ class Main(MyQWidget):
         self.connect(path_browse, QtCore.SIGNAL('clicked()'), select_file)
 
         return path_line
-
 
     def initUI(self):
         # Window parameters
@@ -227,7 +241,7 @@ class Main(MyQWidget):
         self.connect(self.inname_csv, QtCore.SIGNAL("textChanged(QString)"), self.find_fieldnames)
         self.connect(self.config_xml, QtCore.SIGNAL("textChanged(QString)"), self.find_reference_frames)
 
-        # if True: #DEBUG
+        # if True:  #DEBUG
         #     self.inname_csv.setText("T:/_OUTILS/scripts/validation/ModelerTools/ChangementReperes/pts_covadis_P.csv")
         #     self.outname_csv.setText("T:/_OUTILS/scripts/validation/ModelerTools/ChangementReperes/out/pts_calcules_T.csv")
         #     self.config_xml.setText("T:/_OUTILS/scripts/validation/ModelerTools/ChangementReperes/Ref_Loire.xml")
@@ -239,11 +253,11 @@ class Main(MyQWidget):
         hbox.addWidget(self.launch_button)
         self.vbox.addLayout(hbox)
 
-        if True:
-            # self.launch_button.setEnabled(False)
-            self.connect(self.inname_csv, QtCore.SIGNAL("textChanged(QString)"), self.launch_possible)
-            self.connect(self.outname_csv, QtCore.SIGNAL("textChanged(QString)"), self.launch_possible)
-            self.connect(self.config_xml, QtCore.SIGNAL("textChanged(QString)"), self.launch_possible)
+        # Enable or not launch button
+        self.launch_button.setEnabled(False)
+        self.connect(self.inname_csv, QtCore.SIGNAL("textChanged(QString)"), self.launch_possible)
+        self.connect(self.outname_csv, QtCore.SIGNAL("textChanged(QString)"), self.launch_possible)
+        self.connect(self.config_xml, QtCore.SIGNAL("textChanged(QString)"), self.launch_possible)
 
         self.connect(self.launch_button, QtCore.SIGNAL('clicked()'), self.open_popup)
 
@@ -284,9 +298,8 @@ class Main(MyQWidget):
                 except ValueError:
                     pass
 
-
     def find_reference_frames(self):
-        self.ref_frame_config = ReferenceFrameConfig(self.config_xml.text())
+        self.ref_frame_config = ReferenceFrameConfig(self.config_xml.text(), logger)
 
         # Source
         self.source.clear()
@@ -300,7 +313,6 @@ class Main(MyQWidget):
             self.target.addItem(label)
         self.target.setCurrentIndex(len(self.ref_frame_config.reference_frames_dict)-1)
 
-
     def get_abbr_from_text(self, text):
         for abbr, label in self.ref_frame_config.reference_frames_dict.items():
             if text==label:
@@ -309,57 +321,39 @@ class Main(MyQWidget):
 
 
     def open_popup(self):
-        self.w = ExecutingWindow()
-        self.w.show()
+        class args:
+            pass
+        args.inname_csv = self.inname_csv.text()
+        args.outname_csv = self.outname_csv.text()
+        args.config_xml = self.config_xml.text()
+        args.source = self.get_abbr_from_text(self.source.currentText())
+        args.target = self.get_abbr_from_text(self.target.currentText())
+        args.sep = ';'
+        args.x = self.x.currentText()
+        args.y = self.y.currentText()
+        if self.z.currentText() != NO_VALUE:
+            args.z = self.z.currentText()
+        else:
+            args.z = None
+        args.digits = 4
+        args.verbose = True
+        args.force = False
 
         try:
-            class args:
-                pass
-            args.inname_csv = self.inname_csv.text()
-            args.outname_csv = self.outname_csv.text()
-            args.config_xml = self.config_xml.text()
-            args.source = self.get_abbr_from_text(self.source.currentText())
-            args.target = self.get_abbr_from_text(self.target.currentText())
-            args.sep = ';'
-            args.x = self.x.currentText()
-            args.y = self.y.currentText()
-            args.digits = 4
-            if self.z.currentText() != NO_VALUE:
-                args.z = self.z.currentText()
-            else:
-                args.z = None
-
-            out = launch_main(args, logger)
-
+            self.w = ExecutingWindow(args)
+            self.w.show()
         except SystemExit as e:
             logger.fatal(e)
             logger.fatal("L'exécution a échoué à cause de l'erreur ci-dessus")
-            out = None
-
-        if out == 0:
-            logger.info("L'exécution s'est bien terminée")
-
-
-    # def confirm_overwrite(self):
-    #     reply = QtGui.QMessageBox.question(self, 'Message',
-    #                                        "Etes-vous sûr de vouloir écraser le dossier\n{}".format(self.outname_folder_model.text()),
-    #                                        QtGui.QMessageBox.Yes | QtGui.QMessageBox.No, QtGui.QMessageBox.No)
-    #     if reply == QtGui.QMessageBox.Yes:
-    #         return True
-    #     else:
-    #         return False
 
 
 def main():
     app = QtGui.QApplication(sys.argv)
-    ex = Main()
+    Main()
     sys.exit(app.exec_())
 
 
 if __name__ == '__main__':
     logger = logging.getLogger(__name__)
-    handler = QtHandler()
-    handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
-    logger.addHandler(handler)
     logger.setLevel(logging.DEBUG)
     main()
