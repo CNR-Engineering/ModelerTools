@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
-TODO?
-* ne pas ecraser les colonnes d'origine
-* erreur conversion en float
+Changement de repère d'un semis de points
+
+Un fichier d'entrée (au format CSV) contenant l'ensemble des points à traiter est lu. Ce fichier contient au moins 2 colonnes correspond aux coordonnées selon les axes X et Y, les autres colonnes étant simplement copiées sans modification. À partir de ce fichier décrivant les transformations nécessaires pour un ou plusieurs changements de repères, tous changements de repère indirects, dérivés et inverses sont déduits et pourront être demandés par l'utilisateur.
 """
+# TODO?
+#* ne pas ecraser les colonnes d'origine
+#* erreur conversion en float
 
 import csv
 import functools
