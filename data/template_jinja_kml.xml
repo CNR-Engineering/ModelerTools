@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://earth.google.com/kml/2.1">
+<!-- Exported on {{ date }} with GeoRefTerrain.py -->
+  <Document>
+    <name>{{ name }}</name>
+{% if points %}    <Style id="lineStyle">
+      <LineStyle>
+        <color>{{opacity}}{{color}}</color>
+        <width>6</width>
+      </LineStyle>
+    </Style>
+{% endif %}{% if images %}    <Style id="camera">
+      <scale>1.1</scale>
+      <IconStyle>
+        <color>ff00ffff</color>
+        <Icon>
+          <href>http://maps.google.com/mapfiles/kml/pal4/icon38.png</href>
+          <x>192</x>
+          <y>96</y>
+          <w>32</w>
+          <h>32</h>
+        </Icon>
+        <hotSpot x="20" xunits="pixels" y="2" yunits="pixels"/>
+      </IconStyle>
+    </Style>
+    <Folder>
+      <name>Photos</name>
+{% for image in images %}
+      <Placemark>
+        <name>{{image.label}}</name>
+        <description><![CDATA[<img src='{{image.link}}' width='533' height='400'/>]]></description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>{{image.point.lon}},{{image.point.lat}},{{image.point.ele}}</coordinates>
+        </Point>
+      </Placemark>
+{% endfor %}
+    </Folder>
+{% endif %}{% if points %}    <Folder>
+      <name>Parcours</name>
+      <Placemark>
+        <name>Path 1</name>
+        <styleUrl>#lineStyle</styleUrl>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>{% for point in points %}{{point.lon}},{{point.lat}},{{point.ele}}  {% endfor %}</coordinates>
+        </LineString>
+      </Placemark>
+    </Folder>{% endif %}
+  </Document>
+</kml>
