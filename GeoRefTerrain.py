@@ -110,9 +110,8 @@ class Picture:
         exif_data = get_exif_data(image)
         lat, lon = get_lat_lon(exif_data)
         if not lat or not lon:
-            logger.critical("Aucune coordonnée GPS renseignée dans le fichier '{}'".format(self.path))
-            sys.exit(1)
-        ele = 0  #FIXME!: elevation from GPS metadata
+            raise Exception("Aucune coordonnée GPS renseignée dans le fichier '{}'".format(self.path))
+        ele = 0  #FIXME: elevation from GPS metadata
         self.point.set_coord(lat, lon, ele)
 
     def get_date_taken(self):
@@ -335,7 +334,10 @@ def launch_main(args, logger):
             ele = np.interp(time, mykml.array_time, mykml.array_ele)
             image.point.set_coord(lat, lon, ele)
         else:
-            image.set_position_from_gps_metadata()
+            try:
+                image.set_position_from_gps_metadata()
+            except Exception:
+                continue
 
         mykml.append_image(image)
 
