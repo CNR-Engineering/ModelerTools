@@ -95,8 +95,8 @@ geom_axe = LineString(coord)
 # Points décrivant les profils en travers
 data = []
 with fiona.open(args.inname_point, 'r') as in_pts:
-    if in_pts.schema['geometry'] != 'Point':  #FIXME: it should be written 3D Point but fiona does not although it has Z values
-        sys.exit("Le fichier de points n'est pas de type `Point`")
+    if in_pts.schema['geometry'] != '3D Point':
+        sys.exit("Le fichier de points n'est pas de type `3D Point` mais § %s" % in_pts.schema['geometry'])
     for record in in_pts:
         x, y, z = record['geometry']['coordinates']
         attr = None
